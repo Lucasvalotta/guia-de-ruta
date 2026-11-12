@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0d6b3f">
+<title>Guía de Ruta</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800;900&family=Overpass+Mono:wght@500&display=swap">
+<style>
+/* Layout: cartel verde de ruta con lo próximo, tarjeta del guía, lista de lugares adelante */
+:root{
+  --bg:#eef1ee; --surface:#ffffff; --fg:#17201b; --muted:#5d6b63;
+  --sign:#0d6b3f; --sign-fg:#ffffff; --line:#f2c230; --edge:#cfd6d1; --warn:#a4400b;
+  --display:"Overpass","Arial Narrow",system-ui,sans-serif;
+  --mono:"Overpass Mono",ui-monospace,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#121614; --surface:#1b211e; --fg:#e8eee9; --muted:#9aa8a0;
+  --sign:#1c8a55; --edge:#2c3530; --warn:#f0965c; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg)}
+body{font-family:var(--display);font-size:16px;line-height:1.5;
+  padding:max(20px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) 40px max(16px,env(safe-area-inset-left))}
+.wrap{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+header{display:flex;align-items:center;gap:14px}
+.shield{flex:none;width:54px;height:62px;background:var(--surface);border:3px solid var(--fg);
+  border-radius:8px 8px 27px 27px;display:grid;place-items:center;font:900 22px/1 var(--display)}
+h1{font:900 1.9rem/1.05 var(--display);margin:0}
+header p{margin:2px 0 0;color:var(--muted);font-size:.9rem}
+.status{display:flex;flex-wrap:wrap;gap:8px 16px;font:500 .85rem var(--mono);color:var(--muted)}
+.status b{color:var(--fg);font-weight:500}
+.sign{background:var(--sign);color:var(--sign-fg);border-radius:10px;padding:16px 18px;
+  box-shadow:inset 0 0 0 2px rgba(255,255,255,.85)}
+.eyebrow{font:800 .72rem var(--display);letter-spacing:.12em;text-transform:uppercase;opacity:.85}
+.next{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-top:4px}
+.name{font:900 1.4rem/1.15 var(--display);min-width:0;overflow-wrap:anywhere}
+.dist{font:500 1.1rem var(--mono);white-space:nowrap}
+.guide{background:var(--surface);border:1px solid var(--edge);border-radius:10px;padding:16px 18px}
+.guide h2{font:800 1.05rem var(--display);margin:0 0 8px;display:flex;align-items:center;gap:8px}
+.guide p{margin:0}
+.guide a{color:var(--sign);font-weight:600}
+.live{flex:none;width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.live.on{background:#d33;animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.live.on{animation:none}}
+.controls{display:flex;flex-wrap:wrap;gap:10px}
+button,select{font:800 1rem var(--display);border-radius:8px;padding:12px 16px;cursor:pointer;
+  border:2px solid var(--fg);background:transparent;color:var(--fg)}
+button.primary{background:var(--sign);border-color:var(--sign);color:var(--sign-fg);flex:1 1 100%}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,select:focus-visible{outline:3px solid var(--line);outline-offset:2px}
+label.opt{display:flex;align-items:center;gap:10px;font-size:.95rem;color:var(--muted)}
+label.opt select{padding:8px 10px;font-size:.95rem}
+.list h3{font:800 .78rem var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
+.list ol{list-style:none;margin:0;padding:0;border-top:1px solid var(--edge)}
+.list li{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--edge);align-items:baseline}
+.list .k{font:500 .85rem var(--mono);color:var(--muted);min-width:72px;font-variant-numeric:tabular-nums}
+.list .t{min-width:0;overflow-wrap:anywhere}
+.list li.told .t{color:var(--muted)}
+.empty{color:var(--muted);padding:10px 0}
+.list .t{flex:1}
+.nav{flex:none;font:800 .85rem var(--display);color:var(--sign);text-decoration:none;border:2px solid var(--sign);border-radius:6px;padding:4px 10px}
+.take{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px;background:var(--sign);color:var(--sign-fg);
+  font:900 1.15rem var(--display);text-decoration:none;border-radius:8px;padding:14px 16px}
+.take[hidden]{display:none}
+.mic{margin-top:8px;font:500 .85rem var(--mono);color:var(--muted)}
+.mic.on{color:#d33}
+.err{color:var(--warn);font-weight:600}
+.note{font-size:.82rem;color:var(--muted);margin:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="shield" aria-hidden="true">🧭</div>
+    <div><h1>Guía de Ruta</h1><p>Te cuenta la historia de los lugares que vas pasando</p></div>
+  </header>
+
+  <div class="status" id="status"><span>GPS: <b id="gps">apagado</b></span><span>Velocidad: <b id="spd">–</b></span><span>Rumbo: <b id="hdg">–</b></span></div>
+
+  <div class="sign" aria-live="polite">
+    <div class="eyebrow">Lo próximo en el camino</div>
+    <div class="next"><span class="name" id="nextName">Todavía sin datos</span><span class="dist" id="nextDist"></span></div>
+  </div>
+
+  <div class="guide">
+    <h2><span class="live" id="live"></span><span id="gTitle">Tu guía</span></h2>
+    <p id="gText">Tocá «Empezar viaje» y aceptá el permiso de ubicación. Cuando te acerques a un lugar con historia, te la cuento en voz alta.</p>
+    <a class="take" id="take" hidden target="_blank" rel="noopener">Llevame en Google Maps</a>
+    <div class="mic" id="mic" hidden></div>
+  </div>
+
+  <div class="controls">
+    <button class="primary" id="go">Empezar viaje</button>
+    <button id="skip" disabled>Saltar relato</button>
+    <button id="demo">Probar desde Chascomús</button>
+    <label class="opt" for="radius">Avisarme a
+      <select id="radius"><option value="2">2 km</option><option value="5" selected>5 km</option><option value="10">10 km</option></select>
+    </label>
+  </div>
+
+  <section class="list">
+    <h3>Lugares cerca, por delante primero</h3>
+    <ol id="list"><li class="empty">Aparecen cuando el GPS encuentra tu posición.</li></ol>
+  </section>
+
+  <p class="note">Los relatos salen de Wikipedia en español. Conviene dejar el celular enchufado y con el volumen alto.</p>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const R=6371;
+const rad=d=>d*Math.PI/180, deg=r=>r*180/Math.PI;
+function distKm(a,b){const dLat=rad(b.lat-a.lat),dLon=rad(b.lon-a.lon);
+  const h=Math.sin(dLat/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));}
+function bearing(a,b){const y=Math.sin(rad(b.lon-a.lon))*Math.cos(rad(b.lat));
+  const x=Math.cos(rad(a.lat))*Math.sin(rad(b.lat))-Math.sin(rad(a.lat))*Math.cos(rad(b.lat))*Math.cos(rad(b.lon-a.lon));
+  return (deg(Math.atan2(y,x))+360)%360;}
+const angDiff=(a,b)=>{const d=Math.abs(a-b)%360;return d>180?360-d:d;};
+const PUNTOS=["norte","noreste","este","sureste","sur","suroeste","oeste","noroeste"];
+const cardinal=b=>PUNTOS[Math.round(b/45)%8];
+
+let pos=null, anchor=null, heading=null, lastFetch=null, lastFetchAt=0, places=[], speaking=false, watchId=null, wake=null, voice=null;
+let told=new Set();
+try{told=new Set(JSON.parse(localStorage.getItem("guia-told")||"[]"));}catch(e){}
+const saveTold=()=>{try{localStorage.setItem("guia-told",JSON.stringify([...told].slice(-500)));}catch(e){}};
+
+function pickVoice(){const vs=speechSynthesis.getVoices();voice=vs.find(v=>/es[-_]AR/i.test(v.lang))||vs.find(v=>/es[-_](US|MX|419)/i.test(v.lang))||vs.find(v=>/^es/i.test(v.lang))||null;}
+if("speechSynthesis" in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}
+function speak(text){return new Promise(res=>{
+  if(!("speechSynthesis" in window))return res();
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text);u.lang=voice?.lang||"es-AR";if(voice)u.voice=voice;u.rate=1;
+  u.onend=res;u.onerror=res;speechSynthesis.speak(u);});}
+
+const SKIP=/^(Anexo:|Estación |Apeadero |Parada |Avenida |Calle |Ruta |Autopista |Escuela |Club )/;
+async function fetchNearby(){
+  if(!pos)return;
+  lastFetch={...pos};lastFetchAt=Date.now();
+  const url="https://es.wikipedia.org/w/api.php?action=query&format=json&origin=*"+
+    "&generator=geosearch&ggscoord="+pos.lat+"|"+pos.lon+"&ggsradius=10000&ggslimit=40"+
+    "&prop=extracts|coordinates&exintro=1&explaintext=1&exsentences=5&exlimit=max";
+  try{
+    const r=await fetch(url);const j=await r.json();
+    const pages=Object.values(j?.query?.pages||{});
+    places=pages.filter(p=>p.coordinates&&p.extract&&p.extract.length>80&&!SKIP.test(p.title)).map(p=>{
+      const c={lat:p.coordinates[0].lat,lon:p.coordinates[0].lon};
+      return {id:p.pageid,title:p.title,extract:p.extract,c};
+    });
+    update();
+  }catch(e){$("gText").innerHTML='<span class="err">No pude conectarme con Wikipedia. Revisá que tengas datos móviles.</span>';}
+}
+
+function update(){
+  if(!pos)return;
+  places.forEach(p=>{p.d=distKm(pos,p.c);p.b=bearing(pos,p.c);p.ahead=heading==null||angDiff(heading,p.b)<75;});
+  const list=places.filter(p=>p.ahead||p.d<1).sort((a,b)=>a.d-b.d);
+  const ol=$("list");ol.innerHTML="";
+  if(!list.length){ol.innerHTML='<li class="empty">No encontré lugares con historia a menos de 10 km. Sigo buscando mientras avanzás.</li>';}
+  list.slice(0,8).forEach(p=>{const li=document.createElement("li");if(told.has(p.id))li.className="told";
+    li.innerHTML='<span class="k"></span><span class="t"></span><a class="nav" target="_blank" rel="noopener">Ir</a>';
+    li.querySelector(".k").textContent=p.d.toFixed(1).replace(".",",")+" km";
+    li.querySelector(".t").textContent=p.title;li.querySelector(".nav").href=mapsUrl(p);
+    li.querySelector(".nav").setAttribute("aria-label","Ir a "+p.title+" con Google Maps");ol.appendChild(li);});
+  const nx=list.find(p=>!told.has(p.id));
+  $("nextName").textContent=nx?nx.title:"Nada nuevo por ahora";
+  $("nextDist").textContent=nx?"a "+nx.d.toFixed(1).replace(".",",")+" km":"";
+  const lim=+$("radius").value;
+  if(nx&&!speaking&&nx.d<=lim)narrate(nx);
+}
+
+function clean(t){return t.replace(/\s*\([^()]*\)/g,"").replace(/\s*\[[^\]]*\]/g,"").replace(/\s+/g," ").trim();}
+async function narrate(p){
+  speaking=true;told.add(p.id);saveTold();
+  $("skip").disabled=false;$("live").classList.add("on");
+  const km=p.d<1?"Muy cerca":"A "+p.d.toFixed(0)+" kilómetros, hacia el "+cardinal(p.b)+",";
+  const intro=km+" tenés "+p.title+".";
+  const body=clean(p.extract);
+  $("gTitle").textContent=p.title;
+  const gt=$("gText");gt.textContent=body+" ";
+  const a=document.createElement("a");a.href="https://es.wikipedia.org/?curid="+p.id;a.target="_blank";a.rel="noopener";a.textContent="Leer más";gt.appendChild(a);
+  const take=$("take");take.href=mapsUrl(p);take.textContent="Llevame a "+p.title;take.hidden=false;
+  await speak(intro+" "+body);
+  if(speaking&&SR){await speak("Si querés ir, decí: llevame.");if(speaking)await listen(p);}
+  done();
+}
+
+function mapsUrl(p){return "https://www.google.com/maps/dir/?api=1&destination="+p.c.lat+","+p.c.lon+"&travelmode=driving";}
+
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+function listen(p){return new Promise(res=>{
+  const mic=$("mic");let rec;
+  try{rec=new SR();}catch(e){return res();}
+  rec.lang="es-AR";rec.interimResults=false;rec.maxAlternatives=3;
+  let ended=false;const finish=()=>{if(ended)return;ended=true;mic.hidden=true;mic.classList.remove("on");clearTimeout(t);try{rec.stop();}catch(e){}res();};
+  const t=setTimeout(finish,7000);
+  rec.onresult=e=>{const said=[...e.results[0]].map(a=>a.transcript.toLowerCase()).join(" ");
+    if(/llev|vamos|ir |quiero ir|^s[ií]\b/.test(said)){finish();speak("Dale, abro Google Maps.").then(()=>{location.href=mapsUrl(p);});}
+    else finish();};
+  rec.onerror=finish;rec.onend=finish;
+  mic.textContent="🎙 Escuchando… decí «llevame»";mic.hidden=false;mic.classList.add("on");
+  try{rec.start();}catch(e){finish();}
+});}
+function done(){speaking=false;$("skip").disabled=true;$("live").classList.remove("on");setTimeout(update,1500);}
+
+function onPos(p){
+  const np={lat:p.coords.latitude,lon:p.coords.longitude};
+  $("gps").textContent="activo (±"+Math.round(p.coords.accuracy)+" m)";
+  if(p.coords.speed!=null)$("spd").textContent=Math.round(p.coords.speed*3.6)+" km/h";
+  if(p.coords.heading!=null&&!isNaN(p.coords.heading)&&(p.coords.speed||0)>2)heading=p.coords.heading;
+  else if(anchor&&distKm(anchor,np)>0.05)heading=bearing(anchor,np);
+  if(!anchor||distKm(anchor,np)>0.05)anchor=np;
+  if(heading!=null)$("hdg").textContent="hacia el "+cardinal(heading);
+  pos=np;
+  if(!lastFetch||distKm(lastFetch,pos)>2||Date.now()-lastFetchAt>120000)fetchNearby();else update();
+}
+function onErr(e){$("gps").textContent="sin señal";
+  if(e.code===1)$("gText").innerHTML='<span class="err">No tengo permiso para ver tu ubicación. Habilitalo en la configuración del navegador y volvé a tocar «Empezar viaje».</span>';}
+
+async function keepAwake(){try{wake=await navigator.wakeLock?.request("screen");}catch(e){}}
+document.addEventListener("visibilitychange",()=>{if(watchId!=null&&document.visibilityState==="visible")keepAwake();});
+
+function unlockVoice(){if("speechSynthesis" in window){const w=new SpeechSynthesisUtterance(" ");w.volume=0;speechSynthesis.speak(w);}}
+$("go").onclick=()=>{
+  unlockVoice();
+  if(watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null;wake?.release?.();$("go").textContent="Empezar viaje";$("gps").textContent="apagado";return;}
+  if(!("geolocation" in navigator)){$("gText").textContent="Este navegador no puede usar el GPS.";return;}
+  $("gps").textContent="buscando…";
+  watchId=navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:5000,timeout:30000});
+  keepAwake();$("go").textContent="Pausar viaje";
+};
+$("demo").onclick=()=>{unlockVoice();heading=null;anchor=null;
+  onPos({coords:{latitude:-35.5772,longitude:-58.0115,accuracy:10,speed:null,heading:null}});};
+$("skip").onclick=()=>{speaking=false;if("speechSynthesis" in window)speechSynthesis.cancel();};
+$("radius").onchange=update;
+</script>
+</body>
+</html>
