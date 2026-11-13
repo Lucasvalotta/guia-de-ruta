@@ -61,7 +61,7 @@ label.opt select{padding:8px 10px;font-size:.95rem;max-width:62vw}
 .empty{color:var(--muted);padding:10px 0}
 .list .t{flex:1}
 .nav{flex:none;font:800 .85rem var(--display);color:var(--sign);text-decoration:none;border:2px solid var(--sign);border-radius:6px;padding:4px 10px}
-.take{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px;background:var(--sign);color:var(--sign-fg);
+.take{width:100%;border:0;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px;background:var(--sign);color:var(--sign-fg);
   font:900 1.15rem var(--display);text-decoration:none;border-radius:8px;padding:14px 16px}
 .take[hidden]{display:none}
 .mic{margin-top:8px;font:500 .85rem var(--mono);color:var(--muted)}
@@ -87,7 +87,8 @@ label.opt select{padding:8px 10px;font-size:.95rem;max-width:62vw}
   <div class="guide">
     <h2><span class="live" id="live"></span><span id="gTitle">Tu guía</span></h2>
     <p id="gText">Tocá «Empezar viaje» y aceptá el permiso de ubicación. Cuando te acerques a un lugar con historia, te la cuento en voz alta.</p>
-    <a class="take" id="take" hidden target="_blank" rel="noopener">Llevame en Google Maps</a>
+    <button type="button" class="take" id="take" hidden>Llevame</button>
+    <a class="take" id="goMap" hidden target="_blank" rel="noopener">Abrir Google Maps ahora</a>
     <div class="mic" id="mic" hidden></div>
   </div>
 
@@ -106,7 +107,7 @@ label.opt select{padding:8px 10px;font-size:.95rem;max-width:62vw}
     <ol id="list"><li class="empty">Aparecen cuando el GPS encuentra tu posición.</li></ol>
   </section>
 
-  <p class="note">Los relatos salen de Wikipedia en español. Conviene dejar el celular enchufado y con el volumen alto.</p>
+  <p class="note">Te aviso de cada lugar cercano; si decís «llevame» te cuento su historia y te abro Google Maps. Los relatos salen de Wikipedia en español. Conviene dejar el celular enchufado y con el volumen alto.</p>
 </div>
 
 <script>
@@ -170,7 +171,7 @@ async function fetchNearby(){
   lastFetch={...pos};lastFetchAt=Date.now();
   const url="https://es.wikipedia.org/w/api.php?action=query&format=json&origin=*"+
     "&generator=geosearch&ggscoord="+pos.lat+"|"+pos.lon+"&ggsradius=10000&ggslimit=40"+
-    "&prop=extracts|coordinates&exintro=1&explaintext=1&exsentences=5&exlimit=max";
+    "&prop=extracts|coordinates&exintro=1&explaintext=1&exsentences=8&exlimit=max";
   try{
     const r=await fetch(url);const j=await r.json();
     const pages=Object.values(j?.query?.pages||{});
@@ -201,33 +202,54 @@ function update(){
 }
 
 function clean(t){return t.replace(/\s*\([^()]*\)/g,"").replace(/\s*\[[^\]]*\]/g,"").replace(/\s+/g," ").trim();}
+const fmtKm=d=>d<1?"menos de un kilómetro":(d<1.5?"un kilómetro":Math.round(d)+" kilómetros");
+let narrId=0, current=null, curRec=null;
+
+// 1) Solo menciona el lugar y pregunta si querés ir
 async function narrate(p){
+  const my=++narrId; current=p;
   speaking=true;told.add(p.id);saveTold();
   $("skip").disabled=false;$("live").classList.add("on");
-  const km=p.d<1?"Muy cerca":"A "+p.d.toFixed(0)+" kilómetros, hacia el "+cardinal(p.b)+",";
-  const intro=km+" tenés "+p.title+".";
+  $("gTitle").textContent=p.title;
+  $("gText").textContent="A "+fmtKm(p.d).replace("menos de un kilómetro","menos de 1 km").replace(/ kilómetros?/," km")+" hacia el "+cardinal(p.b)+" tenés "+p.title+". ¿Querés ir?";
+  $("goMap").hidden=true;
+  const take=$("take");take.textContent="Llevame a "+p.title;take.hidden=false;
+  await speak("A "+fmtKm(p.d)+", hacia el "+cardinal(p.b)+", tenés "+p.title+". "+(SR?"Si querés ir, decí: llevame.":"Si querés ir, tocá el botón."));
+  if(my!==narrId)return;
+  if(SR){const yes=await listen(); if(my!==narrId)return; if(yes){tellStory(p);return;}}
+  done();
+}
+
+// 2) Al decir «llevame» (o tocar el botón): cuenta la historia y después abre Google Maps
+async function tellStory(p){
+  const my=++narrId; stopListening();
+  speaking=true;$("skip").disabled=false;$("live").classList.add("on");
+  $("take").hidden=true;
   const body=clean(p.extract);
   $("gTitle").textContent=p.title;
   const gt=$("gText");gt.textContent=body+" ";
   const a=document.createElement("a");a.href="https://es.wikipedia.org/?curid="+p.id;a.target="_blank";a.rel="noopener";a.textContent="Leer más";gt.appendChild(a);
-  const take=$("take");take.href=mapsUrl(p);take.textContent="Llevame a "+p.title;take.hidden=false;
-  await speak(intro+" "+body);
-  if(speaking&&SR){await speak("Si querés ir, decí: llevame.");if(speaking)await listen(p);}
-  done();
+  const gm=$("goMap");gm.href=mapsUrl(p);gm.hidden=false;
+  await speak("Dale, vamos para "+p.title+". Mientras tanto te cuento. "+body);
+  if(my!==narrId)return;
+  await speak("Te abro Google Maps para que llegues.");
+  if(my!==narrId)return;
+  done(); location.href=mapsUrl(p);
 }
 
 function mapsUrl(p){return "https://www.google.com/maps/dir/?api=1&destination="+p.c.lat+","+p.c.lon+"&travelmode=driving";}
 
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-function listen(p){return new Promise(res=>{
+function stopListening(){if(curRec){try{curRec.abort();}catch(e){}curRec=null;}$("mic").hidden=true;$("mic").classList.remove("on");}
+function listen(){return new Promise(res=>{
   const mic=$("mic");let rec;
-  try{rec=new SR();}catch(e){return res();}
-  rec.lang="es-AR";rec.interimResults=false;rec.maxAlternatives=3;
-  let ended=false;const finish=()=>{if(ended)return;ended=true;mic.hidden=true;mic.classList.remove("on");clearTimeout(t);try{rec.stop();}catch(e){}res();};
+  try{rec=new SR();}catch(e){return res(false);}
+  curRec=rec;rec.lang="es-AR";rec.interimResults=false;rec.maxAlternatives=3;
+  let ended=false,yes=false;
+  const finish=()=>{if(ended)return;ended=true;clearTimeout(t);if(curRec===rec)stopListening();res(yes);};
   const t=setTimeout(finish,7000);
   rec.onresult=e=>{const said=[...e.results[0]].map(a=>a.transcript.toLowerCase()).join(" ");
-    if(/llev|vamos|ir |quiero ir|^s[ií]\b/.test(said)){finish();speak("Dale, abro Google Maps.").then(()=>{location.href=mapsUrl(p);});}
-    else finish();};
+    yes=/llev|vamos|quiero ir|dale|^s[ií]\b/.test(said);finish();};
   rec.onerror=finish;rec.onend=finish;
   mic.textContent="🎙 Escuchando… decí «llevame»";mic.hidden=false;mic.classList.add("on");
   try{rec.start();}catch(e){finish();}
@@ -262,7 +284,8 @@ $("go").onclick=()=>{
   watchId=navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:5000,timeout:30000});
   keepAwake();$("go").textContent="Pausar viaje";
 };
-$("skip").onclick=()=>{speaking=false;speakToken++;if("speechSynthesis" in window)speechSynthesis.cancel();};
+$("skip").onclick=()=>{narrId++;speakToken++;stopListening();if("speechSynthesis" in window)speechSynthesis.cancel();$("take").hidden=true;done();};
+$("take").onclick=()=>{if(current){speakToken++;if("speechSynthesis" in window)speechSynthesis.cancel();tellStory(current);}};
 $("voz").onchange=e=>{voice=voices.find(v=>v.name===e.target.value)||voice;try{localStorage.setItem("guia-voz",voice?.name||"");}catch(err){}};
 $("testVoz").onclick=()=>speak("¡Hola! Soy tu guía de ruta. A cinco kilómetros tenés un lugar con mucha historia, ¿querés que te cuente?");
 $("radius").onchange=update;
