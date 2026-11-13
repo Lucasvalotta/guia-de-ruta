@@ -51,7 +51,7 @@ button.primary{background:var(--sign);border-color:var(--sign);color:var(--sign-
 button:disabled{opacity:.45;cursor:default}
 button:focus-visible,select:focus-visible{outline:3px solid var(--line);outline-offset:2px}
 label.opt{display:flex;align-items:center;gap:10px;font-size:.95rem;color:var(--muted)}
-label.opt select{padding:8px 10px;font-size:.95rem}
+label.opt select{padding:8px 10px;font-size:.95rem;max-width:62vw}
 .list h3{font:800 .78rem var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
 .list ol{list-style:none;margin:0;padding:0;border-top:1px solid var(--edge)}
 .list li{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--edge);align-items:baseline}
@@ -97,6 +97,8 @@ label.opt select{padding:8px 10px;font-size:.95rem}
     <label class="opt" for="radius">Avisarme a
       <select id="radius"><option value="2">2 km</option><option value="5" selected>5 km</option><option value="10">10 km</option></select>
     </label>
+    <label class="opt" for="voz">Voz <select id="voz"><option>Voz del sistema</option></select></label>
+    <button id="testVoz">Probar voz</button>
   </div>
 
   <section class="list">
@@ -126,13 +128,41 @@ let told=new Set();
 try{told=new Set(JSON.parse(localStorage.getItem("guia-told")||"[]"));}catch(e){}
 const saveTold=()=>{try{localStorage.setItem("guia-told",JSON.stringify([...told].slice(-500)));}catch(e){}};
 
-function pickVoice(){const vs=speechSynthesis.getVoices();voice=vs.find(v=>/es[-_]AR/i.test(v.lang))||vs.find(v=>/es[-_](US|MX|419)/i.test(v.lang))||vs.find(v=>/^es/i.test(v.lang))||null;}
-if("speechSynthesis" in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}
-function speak(text){return new Promise(res=>{
-  if(!("speechSynthesis" in window))return res();
+// Puntaje de voces: primero las de Argentina/Latinoamérica y las de mejor calidad
+function score(v){let s=0;const n=v.name.toLowerCase(),l=v.lang.toLowerCase().replace("_","-");
+  if(l==="es-ar")s+=50;else if(/es-(419|uy|cl|py)/.test(l))s+=35;else if(/es-(us|mx|co)/.test(l))s+=25;else if(l==="es-es")s+=5;
+  if(/natural|neural|premium|enhanced|mejorad|online/.test(n))s+=30;
+  if(/google/.test(n))s+=10;
+  if(/compact|espeak/.test(n))s-=30;
+  return s;}
+let voices=[];
+function loadVoices(){
+  voices=speechSynthesis.getVoices().filter(v=>/^es/i.test(v.lang)).sort((a,b)=>score(b)-score(a));
+  const sel=$("voz");if(!sel)return;
+  let saved=null;try{saved=localStorage.getItem("guia-voz");}catch(e){}
+  sel.innerHTML="";
+  voices.forEach((v,i)=>{const o=document.createElement("option");o.value=v.name;
+    o.textContent=v.name.replace(/Microsoft |Google /,"").slice(0,40)+" ("+v.lang.replace("_","-")+")";sel.appendChild(o);});
+  if(!voices.length){const o=document.createElement("option");o.textContent="Voz del sistema";sel.appendChild(o);}
+  voice=voices.find(v=>v.name===saved)||voices[0]||null;
+  if(voice)sel.value=voice.name;
+}
+if("speechSynthesis" in window){loadVoices();speechSynthesis.onvoiceschanged=loadVoices;}
+
+// Habla frase por frase: suena con pausas más naturales y evita que el celular corte textos largos
+let speakToken=0;
+function speak(text){
+  if(!("speechSynthesis" in window))return Promise.resolve();
   speechSynthesis.cancel();
-  const u=new SpeechSynthesisUtterance(text);u.lang=voice?.lang||"es-AR";if(voice)u.voice=voice;u.rate=1;
-  u.onend=res;u.onerror=res;speechSynthesis.speak(u);});}
+  const my=++speakToken;
+  const parts=text.match(/[^.!?;:]+[.!?;:]*/g)||[text];
+  return parts.reduce((p,frase)=>p.then(()=>new Promise(res=>{
+    if(my!==speakToken||!frase.trim())return res();
+    const u=new SpeechSynthesisUtterance(frase.trim());
+    u.lang=voice?.lang||"es-AR";if(voice)u.voice=voice;u.rate=0.98;u.pitch=1.05;
+    u.onend=res;u.onerror=res;speechSynthesis.speak(u);
+  })),Promise.resolve());
+}
 
 const SKIP=/^(Anexo:|Estación |Apeadero |Parada |Avenida |Calle |Ruta |Autopista |Escuela |Club )/;
 async function fetchNearby(){
@@ -232,7 +262,9 @@ $("go").onclick=()=>{
   watchId=navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:5000,timeout:30000});
   keepAwake();$("go").textContent="Pausar viaje";
 };
-$("skip").onclick=()=>{speaking=false;if("speechSynthesis" in window)speechSynthesis.cancel();};
+$("skip").onclick=()=>{speaking=false;speakToken++;if("speechSynthesis" in window)speechSynthesis.cancel();};
+$("voz").onchange=e=>{voice=voices.find(v=>v.name===e.target.value)||voice;try{localStorage.setItem("guia-voz",voice?.name||"");}catch(err){}};
+$("testVoz").onclick=()=>speak("¡Hola! Soy tu guía de ruta. A cinco kilómetros tenés un lugar con mucha historia, ¿querés que te cuente?");
 $("radius").onchange=update;
 </script>
 </body>
