@@ -94,7 +94,6 @@ label.opt select{padding:8px 10px;font-size:.95rem}
   <div class="controls">
     <button class="primary" id="go">Empezar viaje</button>
     <button id="skip" disabled>Saltar relato</button>
-    <button id="demo">Probar desde Chascomús</button>
     <label class="opt" for="radius">Avisarme a
       <select id="radius"><option value="2">2 km</option><option value="5" selected>5 km</option><option value="10">10 km</option></select>
     </label>
@@ -228,11 +227,11 @@ $("go").onclick=()=>{
   if(watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null;wake?.release?.();$("go").textContent="Empezar viaje";$("gps").textContent="apagado";return;}
   if(!("geolocation" in navigator)){$("gText").textContent="Este navegador no puede usar el GPS.";return;}
   $("gps").textContent="buscando…";
+  pos=null;anchor=null;heading=null;lastFetch=null;places=[];
+  $("nextName").textContent="Buscando tu ubicación…";$("nextDist").textContent="";
   watchId=navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:5000,timeout:30000});
   keepAwake();$("go").textContent="Pausar viaje";
 };
-$("demo").onclick=()=>{unlockVoice();heading=null;anchor=null;
-  onPos({coords:{latitude:-35.5772,longitude:-58.0115,accuracy:10,speed:null,heading:null}});};
 $("skip").onclick=()=>{speaking=false;if("speechSynthesis" in window)speechSynthesis.cancel();};
 $("radius").onchange=update;
 </script>
