@@ -191,10 +191,18 @@ const saveTold=()=>{try{localStorage.setItem("guia-told",JSON.stringify([...told
 let map=null, meMarker=null;
 if(window.L){
   map=L.map("map",{zoomControl:false}).setView([-35.2,-58.2],8);
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",{
-    maxZoom:19,subdomains:"abcd",
-    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-  }).addTo(map);
+  // Mapas sin clave: OpenStreetMap y, si falla, el estilo humanitario de OSM Francia
+  const OSM_ATTR='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+  const TILES=[
+    ["https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:OSM_ATTR}],
+    ["https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png",{maxZoom:19,subdomains:"abc",attribution:OSM_ATTR+' · Tiles <a href="https://www.openstreetmap.fr">OSM France</a>'}]
+  ];
+  let tileIdx=0,tileErrs=0,tileOk=0,layer=null;
+  const setTiles=i=>{if(layer)map.removeLayer(layer);tileErrs=0;tileOk=0;
+    layer=L.tileLayer(TILES[i][0],TILES[i][1]).addTo(map);
+    layer.on("tileload",()=>tileOk++);
+    layer.on("tileerror",()=>{tileErrs++;if(tileErrs>=4&&tileOk===0&&tileIdx<TILES.length-1)setTiles(++tileIdx);});};
+  setTiles(0);
   map.attributionControl.setPrefix(false);
   map.on("dragstart",()=>{if(pos){follow=false;$("recenter").hidden=false;}});
 }else{
@@ -244,28 +252,41 @@ function loadVoices(){
   voice=voices.find(v=>v.name===saved)||voices[0]||null;if(voice)sel.value=voice.name;
 }
 if("speechSynthesis" in window){loadVoices();speechSynthesis.onvoiceschanged=loadVoices;}
-let speakToken=0;
+/* Voz robusta para celulares:
+   - no se habla justo después de cancelar ni de usar el micrófono (Android e iPhone descartan ese audio)
+   - se guardan las frases en memoria para que el navegador no las pierda
+   - si el celular no avisa que terminó una frase, se sigue igual a los pocos segundos */
+let speakToken=0, lastListenEnd=0, lastCancel=0;
+const liveUtterances=[];
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
 function speak(text){
   if(!("speechSynthesis" in window))return Promise.resolve();
-  speechSynthesis.cancel();const my=++speakToken;
+  const ss=speechSynthesis, my=++speakToken;
+  if(ss.speaking||ss.pending){ss.cancel();lastCancel=Date.now();}
   const parts=text.match(/[^.!?;]+[.!?;]*/g)||[text];
-  return parts.reduce((p,f)=>p.then(()=>new Promise(res=>{
+  const delay=Math.max(0,lastCancel+350-Date.now(),lastListenEnd+700-Date.now());
+  return wait(delay).then(()=>parts.reduce((p,f)=>p.then(()=>new Promise(res=>{
     if(my!==speakToken||!f.trim())return res();
-    const u=new SpeechSynthesisUtterance(f.trim());u.lang=voice?.lang||"es-AR";if(voice)u.voice=voice;u.rate=.98;u.pitch=1.05;
-    u.onend=res;u.onerror=res;speechSynthesis.speak(u);})),Promise.resolve());
+    const u=new SpeechSynthesisUtterance(f.trim());u.lang=voice?.lang||"es-AR";if(voice)u.voice=voice;u.rate=.98;u.pitch=1.05;u.volume=1;
+    liveUtterances.push(u);if(liveUtterances.length>40)liveUtterances.shift();
+    let done=false;const fin=()=>{if(done)return;done=true;clearTimeout(guard);res();};
+    const guard=setTimeout(fin,2500+f.length*110);
+    u.onend=fin;u.onerror=fin;
+    try{ss.resume();}catch(e){}
+    ss.speak(u);})),Promise.resolve()));
 }
-function hush(){speakToken++;if("speechSynthesis" in window)speechSynthesis.cancel();}
+function hush(){speakToken++;if("speechSynthesis" in window&&(speechSynthesis.speaking||speechSynthesis.pending)){speechSynthesis.cancel();lastCancel=Date.now();}}
 function unlockVoice(){if("speechSynthesis" in window){const w=new SpeechSynthesisUtterance(" ");w.volume=0;speechSynthesis.speak(w);}}
 
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 let curRec=null;
-function stopListening(){if(curRec){try{curRec.abort();}catch(e){}curRec=null;}$("pListen").hidden=true;$("mic").classList.remove("listening");}
+function stopListening(){if(curRec){try{curRec.abort();}catch(e){}curRec=null;lastListenEnd=Date.now();}$("pListen").hidden=true;$("mic").classList.remove("listening");}
 function listen(ms=7000){return new Promise(res=>{
   if(!SR)return res(null);
   let rec;try{rec=new SR();}catch(e){return res(null);}
   stopListening();curRec=rec;rec.lang="es-AR";rec.interimResults=false;rec.maxAlternatives=3;
   let ended=false,ans=null;
-  const finish=()=>{if(ended)return;ended=true;clearTimeout(t);if(curRec===rec)stopListening();res(ans);};
+  const finish=()=>{if(ended)return;ended=true;clearTimeout(t);if(curRec===rec)stopListening();lastListenEnd=Date.now();res(ans);};
   const t=setTimeout(finish,ms);
   rec.onresult=e=>{const said=[...e.results[0]].map(a=>a.transcript.toLowerCase()).join(" ");
     if(/llev|vamos|quiero ir|dale|^s[ií]\b/.test(said))ans="llevame";else if(/cont|histor|cu[eé]nt|qu[eé] es/.test(said))ans="contame";finish();};
